@@ -1,204 +1,185 @@
-# Bài Tập Nhóm — Search Engine / RAG Chatbot
+# Báo Cáo Bài Tập Nhóm - RAG Chatbot
 
-## Mục Tiêu
+## 1. Thông tin nhóm
 
-Sau khi hoàn thành bài cá nhân, nhóm ngồi lại để xây dựng **1 trong 2 sản phẩm**:
+| Mã HV | Họ tên | Vai trò |
+|---|---|---|
+| 2A202600741 | Đàm Mạnh Dũng | AI / Backend Developer |
+| 2A202600846 | Nguyễn Hoàng Thanh Tùng | Tech Lead / Full-stack |
+| 2A202600755 | Lê Bá Chiến | UI/UX & QA |
 
----
+## 2. Phạm vi sản phẩm nhóm
 
-## Yêu cầu 1:  Sản phẩm nhóm RAG Chatbot
+Nhóm lựa chọn **Yêu cầu 1: Sản phẩm nhóm RAG Chatbot** trong README.
 
-Xây dựng chatbot trả lời câu hỏi về pháp luật ma tuý và tin tức liên quan.
+Sản phẩm là một chatbot tra cứu thông tin về pháp luật Việt Nam liên quan đến ma túy và các bài báo về nghệ sĩ liên quan đến ma túy. Ứng dụng sử dụng giao diện Streamlit, kết nối với pipeline retrieval và generation đã xây dựng ở các task cá nhân.
 
-**Yêu cầu:**
-- Giao diện chat (Streamlit / Gradio / Chainlit)
-- Trả lời có citation (dựa trên Task 10)
-- Hỗ trợ follow-up questions (conversation memory)
-- Hiển thị source documents đã dùng
+Phần **RAG Evaluation Pipeline** chưa được triển khai trong phạm vi nộp hiện tại vì nhóm tập trung hoàn thiện sản phẩm chatbot demo theo một trong hai hướng sản phẩm nhóm.
 
-**Stack gợi ý:**
-```
-Chainlit/Streamlit → Retrieval (Task 9) → Generation (Task 10) → Display
-```
+## 3. Mục tiêu
 
----
+- Xây dựng giao diện chat có thể chạy local bằng Streamlit.
+- Tích hợp pipeline retrieval từ các module cá nhân.
+- Trả lời câu hỏi dựa trên dữ liệu đã thu thập, chuẩn hóa và index.
+- Hiển thị các source documents/chunks được dùng để hỗ trợ câu trả lời.
+- Hỗ trợ bật/tắt reranking và generation để demo các cấu hình khác nhau.
 
-## Yêu cầu 2: RAG Evaluation Pipeline
+## 4. Dữ liệu sử dụng
 
-Sử dụng **1 trong 3 framework** sau để evaluate pipeline RAG của nhóm:
+### Văn bản pháp luật
 
-### Framework lựa chọn
+Dữ liệu pháp luật được lưu tại `data/landing/legal/`, gồm 4 văn bản PDF:
 
-| Framework | Cài đặt | Đặc điểm |
-|-----------|---------|-----------|
-| [DeepEval](https://github.com/confident-ai/deepeval) | `pip install deepeval` | Nhiều metric built-in, dễ integrate với pytest |
-| [RAGAS](https://github.com/explodinggradients/ragas) | `pip install ragas` | Chuẩn industry cho RAG eval, 3 trục chính |
-| [TruLens](https://github.com/truera/trulens) | `pip install trulens` | Dashboard UI, feedback functions mạnh |
+- Bộ luật Hình sự sửa đổi 2017.
+- Luật Phòng, chống ma túy 2021.
+- Nghị định 105/2021/NĐ-CP hướng dẫn thi hành Luật Phòng, chống ma túy.
+- Nghị định 28/2026/NĐ-CP về danh mục chất ma túy và tiền chất.
 
-### Yêu cầu Evaluation
+### Bài báo
 
-1. **Tạo Golden Dataset** — tối thiểu 15 cặp Q&A (question, expected_answer, expected_context)
-2. **Chạy evaluation** trên toàn bộ golden dataset với các metrics sau:
-   - **Faithfulness** — câu trả lời có bám đúng context không?
-   - **Answer Relevance** — câu trả lời có đúng câu hỏi không?
-   - **Context Recall** — retriever có lấy đủ evidence không?
-   - **Context Precision** — trong context lấy về, bao nhiêu % thực sự hữu ích?
-3. **So sánh A/B** — chạy eval trên ít nhất 2 config khác nhau (ví dụ: có reranking vs không reranking, hoặc hybrid vs dense-only)
-4. **Báo cáo** — bảng điểm + phân tích worst performers + đề xuất cải tiến
+Dữ liệu tin tức được lưu tại `data/landing/news/`, gồm 5 bài báo dạng JSON. Mỗi bài có metadata như URL gốc, tiêu đề, ngày crawl và nội dung bài viết.
 
-### Code mẫu — DeepEval
+### Dữ liệu chuẩn hóa
 
-```python
-from deepeval import evaluate
-from deepeval.metrics import (
-    FaithfulnessMetric,
-    AnswerRelevancyMetric,
-    ContextualRecallMetric,
-    ContextualPrecisionMetric,
-)
-from deepeval.test_case import LLMTestCase
+Toàn bộ dữ liệu được chuyển sang Markdown và lưu tại:
 
-# Tạo test cases từ golden dataset
-test_cases = []
-for item in golden_dataset:
-    result = rag_pipeline.generate_with_citation(item["question"])
-    test_case = LLMTestCase(
-        input=item["question"],
-        actual_output=result["answer"],
-        expected_output=item["expected_answer"],
-        retrieval_context=[c["content"] for c in result["sources"]],
-    )
-    test_cases.append(test_case)
+- `data/standardized/legal/`
+- `data/standardized/news/`
 
-# Chạy evaluation
-metrics = [
-    FaithfulnessMetric(threshold=0.7),
-    AnswerRelevancyMetric(threshold=0.7),
-    ContextualRecallMetric(threshold=0.7),
-    ContextualPrecisionMetric(threshold=0.7),
-]
+## 5. Kiến trúc hệ thống
 
-results = evaluate(test_cases, metrics)
+```mermaid
+flowchart LR
+    A["User question"] --> B["Streamlit Chat UI"]
+    B --> C["Task 9: Retrieval Pipeline"]
+    C --> D["Task 5: FAISS Semantic Search"]
+    C --> E["Task 6: BM25 Lexical Search"]
+    D --> F["RRF Merge"]
+    E --> F
+    F --> G["Task 7: Jina Reranker / Local fallback"]
+    G --> H["Top-k Context Chunks"]
+    H --> I["Task 10: Generation with Citation"]
+    I --> J["Answer with citations"]
+    H --> K["Source documents panel"]
+    J --> B
+    K --> B
 ```
 
-### Code mẫu — RAGAS
+## 6. Thành phần kỹ thuật
 
-```python
-from ragas import evaluate
-from ragas.metrics import (
-    faithfulness,
-    answer_relevancy,
-    context_recall,
-    context_precision,
-)
-from datasets import Dataset
+| Thành phần | Công nghệ / Module | Mô tả |
+|---|---|---|
+| Giao diện | Streamlit | Giao diện chat, sidebar cấu hình retrieval, hiển thị hội thoại và nguồn |
+| Chunking | RecursiveCharacterTextSplitter | Chia tài liệu Markdown thành các đoạn nhỏ |
+| Embedding | `sentence-transformers/all-MiniLM-L6-v2` | Tạo vector embedding 384 chiều |
+| Vector store | FAISS | Lưu và truy vấn dense vectors local |
+| Semantic search | `src/task5_semantic_search.py` | Truy vấn theo ngữ nghĩa |
+| Lexical search | `src/task6_lexical_search.py` | Tìm kiếm BM25 theo keyword |
+| Fusion | RRF | Gộp kết quả semantic và lexical |
+| Reranking | Jina Reranker v2 / local fallback | Sắp xếp lại kết quả theo độ liên quan |
+| Generation | DashScope OpenAI-compatible API / extractive fallback | Sinh câu trả lời có citation |
+| App | `streamlit/app.py` | Ứng dụng demo nhóm |
 
-# Chuẩn bị data
-eval_data = {
-    "question": [],
-    "answer": [],
-    "contexts": [],
-    "ground_truth": [],
-}
+## 7. Chức năng đã hoàn thành
 
-for item in golden_dataset:
-    result = rag_pipeline.generate_with_citation(item["question"])
-    eval_data["question"].append(item["question"])
-    eval_data["answer"].append(result["answer"])
-    eval_data["contexts"].append([c["content"] for c in result["sources"]])
-    eval_data["ground_truth"].append(item["expected_answer"])
+- Giao diện chat bằng Streamlit.
+- Thanh cấu hình `Top K`, bật/tắt `Jina reranking`, bật/tắt `Qwen generation`.
+- Kết nối trực tiếp với retrieval pipeline trong `src/task9_retrieval_pipeline.py`.
+- Hiển thị lịch sử hội thoại trong phiên làm việc.
+- Hiển thị danh sách source chunks ở cột bên phải.
+- Hiển thị score, loại tài liệu và chunk index của từng nguồn.
+- Có fallback extractive answer khi thiếu cấu hình LLM, giúp app vẫn chạy được khi không có API key.
+- Có thể chạy local để demo trực tiếp.
 
-dataset = Dataset.from_dict(eval_data)
+## 8. Luồng xử lý chính
 
-# Chạy evaluation
-result = evaluate(
-    dataset,
-    metrics=[faithfulness, answer_relevancy, context_recall, context_precision],
-)
-print(result.to_pandas())
-```
+1. Người dùng nhập câu hỏi trên giao diện Streamlit.
+2. App gọi hàm `retrieve()` trong Task 9.
+3. Pipeline chạy song song hai hướng retrieval:
+   - Semantic search trên FAISS.
+   - Lexical search bằng BM25.
+4. Kết quả được gộp bằng Reciprocal Rank Fusion.
+5. Nếu bật reranking, kết quả được rerank bằng Jina Reranker hoặc fallback local.
+6. Nếu bật generation, Task 10 sinh câu trả lời từ context đã retrieve.
+7. App hiển thị câu trả lời và các source chunks đã sử dụng.
 
-### Code mẫu — TruLens
-
-```python
-from trulens.apps.custom import TruCustomApp, instrument
-from trulens.core import Feedback
-from trulens.providers.openai import OpenAI as TruOpenAI
-
-provider = TruOpenAI()
-
-# Define feedback functions
-f_faithfulness = Feedback(provider.groundedness_measure_with_cot_reasons).on_output()
-f_relevance = Feedback(provider.relevance).on_input_output()
-f_context_relevance = Feedback(provider.context_relevance).on_input()
-
-# Wrap RAG pipeline
-tru_rag = TruCustomApp(
-    rag_pipeline,
-    app_name="DrugLaw_RAG",
-    feedbacks=[f_faithfulness, f_relevance, f_context_relevance],
-)
-
-# Run evaluation
-with tru_rag as recording:
-    for item in golden_dataset:
-        rag_pipeline.generate_with_citation(item["question"])
-
-# View dashboard
-from trulens.dashboard import run_dashboard
-run_dashboard()
-```
-
-### Deliverable Evaluation
-
-- [ ] File `group_project/evaluation/golden_dataset.json` — 15+ cặp Q&A
-- [ ] File `group_project/evaluation/eval_pipeline.py` — script chạy evaluation
-- [ ] File `group_project/evaluation/results.md` — bảng điểm + phân tích
-- [ ] So sánh A/B ít nhất 2 configs
-
----
-
-## Yêu Cầu Chung
-
-1. **Tích hợp pipeline** từ bài cá nhân của các thành viên
-2. **Demo hoạt động được** trong buổi trình bày (chạy local hoặc deploy)
-3. **Evaluation pipeline** chạy được và có báo cáo kết quả
-4. **Code push lên repository** chung của nhóm
-5. **README** mô tả kiến trúc và phân công (điền bên dưới)
-
----
-
-## Kiến Trúc Hệ Thống
-
-```
-[Vẽ diagram kiến trúc ở đây]
-```
-
----
-
-## Phân Công Công Việc
+## 9. Phân công công việc
 
 | Thành viên | MSSV | Nhiệm vụ | Trạng thái |
-|-----------|------|----------|------------|
-| | | | |
-| | | | |
-| | | | |
-| | | | |
+|---|---|---|---|
+| Đàm Mạnh Dũng | 2A202600741 | Xử lý AI/backend, tích hợp retrieval, semantic search, lexical search, reranking và generation | Hoàn thành |
+| Nguyễn Hoàng Thanh Tùng | 2A202600846 | Tech lead/full-stack, điều phối kiến trúc, tích hợp pipeline vào app, kiểm tra luồng chạy tổng thể | Hoàn thành |
+| Lê Bá Chiến | 2A202600755 | Thiết kế UI/UX Streamlit, kiểm thử giao diện, kiểm tra source display và trải nghiệm demo | Hoàn thành |
 
----
+## 10. Hướng dẫn chạy
 
-## Hướng Dẫn Chạy
+Chạy từ thư mục root của project:
 
-```bash
-# Cài đặt dependencies
+```powershell
 pip install -r requirements.txt
-
-# Chạy app
-streamlit run app.py
-# hoặc
-chainlit run app.py
 ```
 
----
+Nếu dùng virtual environment có sẵn:
 
-## Lưu ý: Hãy giữ lại repo này nếu như bạn học track 3 giai đoạn 2, chúng ta sẽ phát triển tiếp dự án lên knowledge graph để khắc phục các câu hỏi hóc búa khi có các câu hỏi khó.
+```powershell
+venv\Scripts\streamlit.exe run streamlit\app.py
+```
+
+Nếu port 8501 bị chiếm:
+
+```powershell
+venv\Scripts\streamlit.exe run streamlit\app.py --server.port 8502
+```
+
+## 11. Cấu hình môi trường
+
+Tạo file `.env` từ `.env.example` và điền API key nếu muốn dùng các dịch vụ bên ngoài:
+
+```env
+JINA_API_KEY=your_jina_api_key
+DASHSCOPE_API_KEY=your_dashscope_api_key
+DASHSCOPE_BASE_URL=your_dashscope_openai_compatible_base_url
+DASHSCOPE_MODEL=qwen3.5-flash
+```
+
+Nếu thiếu API key, app vẫn có thể demo retrieval và fallback answer local.
+
+## 12. Kết quả đạt được
+
+Sản phẩm đã đáp ứng các yêu cầu chính của RAG Chatbot:
+
+| Yêu cầu | Trạng thái | Ghi chú |
+|---|---|---|
+| Giao diện chat | Đạt | Dùng Streamlit |
+| Trả lời có citation | Đạt một phần | Có citation khi dùng Task 10; fallback cũng gắn nguồn từ context |
+| Hỗ trợ follow-up questions | Đạt cơ bản | Lưu lịch sử hội thoại trong session |
+| Hiển thị source documents | Đạt | Có panel Sources hiển thị chunk, score và metadata |
+| Tích hợp pipeline cá nhân | Đạt | Tích hợp Task 5, 6, 7, 9, 10 |
+| Demo local | Đạt | Chạy bằng `streamlit/app.py` |
+
+## 13. Hạn chế
+
+- Conversation memory hiện mới lưu lịch sử trong session, chưa dùng lịch sử hội thoại làm context cho câu hỏi tiếp theo.
+- PageIndex fallback đang bị tắt để tránh tiêu tốn credit.
+- Chất lượng generation phụ thuộc vào API key DashScope/Qwen.
+- Evaluation pipeline chưa được triển khai trong phạm vi sản phẩm nhóm hiện tại.
+- Citation phụ thuộc vào metadata của chunks, nên có thể cần chuẩn hóa thêm tên nguồn để citation đẹp hơn.
+
+## 14. Hướng phát triển
+
+- Bổ sung memory thực sự cho follow-up question.
+- Chuẩn hóa citation theo định dạng `[Tên tài liệu, Năm]`.
+- Thêm bộ câu hỏi kiểm thử và evaluation tự động nếu mở rộng sang Yêu cầu 2.
+- Tối ưu chunking riêng cho văn bản pháp luật để truy xuất chính xác theo điều/khoản.
+- Thêm bộ lọc nguồn theo loại tài liệu: văn bản pháp luật hoặc bài báo.
+- Deploy app lên cloud để demo không cần chạy local.
+
+## 15. Checklist nộp bài
+
+- [x] Có app chatbot Streamlit.
+- [x] Có dữ liệu pháp luật và tin tức.
+- [x] Có pipeline retrieval.
+- [x] Có generation với citation/fallback.
+- [x] Có hiển thị source documents.
+- [x] Có README mô tả kiến trúc và phân công.
+- [ ] Chưa làm RAG Evaluation Pipeline.
