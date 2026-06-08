@@ -1,0 +1,3 @@
+-do not delete any file in project 
+-do not change file "D:\Vin_GD1\day8\Day08_RAG_pipeline_cohort2-main\Day08_Le-Ba-Chien-2A202600755\tests\test_individual.py"
+-write comment for all function you write or you change

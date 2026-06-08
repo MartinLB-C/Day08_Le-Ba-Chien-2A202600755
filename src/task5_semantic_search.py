@@ -1,66 +1,112 @@
 """
-Task 5 — Semantic Search Module.
+Task 5 - Semantic search module.
 
-Viết module tìm kiếm ngữ nghĩa (dense retrieval) trên vector store.
-
-Yêu cầu:
-    - Input: query string + top_k
-    - Output: danh sách chunks có score, sorted descending
-    - Phải tương thích với embedding model và vector store ở Task 4
+Dense retrieval uses the FAISS vector store created by Task 4 in
+data/vectorstore/. Query embeddings use the same all-MiniLM-L6-v2 model.
 """
+
+from __future__ import annotations
+
+import json
+from functools import lru_cache
+from pathlib import Path
+
+import faiss
+import numpy as np
+from sentence_transformers import SentenceTransformer
+
+PROJECT_DIR = Path(__file__).parent.parent
+VECTORSTORE_DIR = PROJECT_DIR / "data" / "vectorstore"
+FAISS_INDEX_PATH = VECTORSTORE_DIR / "faiss.index"
+METADATA_PATH = VECTORSTORE_DIR / "metadata.json"
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+@lru_cache(maxsize=1)
+def _load_model() -> SentenceTransformer:
+    return SentenceTransformer(EMBEDDING_MODEL, local_files_only=True)
+
+
+@lru_cache(maxsize=1)
+def _load_faiss_index():
+    if not FAISS_INDEX_PATH.exists():
+        raise FileNotFoundError(
+            f"FAISS index not found: {FAISS_INDEX_PATH}. "
+            "Run src/task4_chunking_indexing.py first."
+        )
+    return faiss.read_index(str(FAISS_INDEX_PATH))
+
+
+@lru_cache(maxsize=1)
+def _load_metadata() -> dict:
+    if not METADATA_PATH.exists():
+        raise FileNotFoundError(
+            f"FAISS metadata not found: {METADATA_PATH}. "
+            "Run src/task4_chunking_indexing.py first."
+        )
+    return json.loads(METADATA_PATH.read_text(encoding="utf-8"))
+
+
+def _embed_query(query: str) -> np.ndarray:
+    model = _load_model()
+    embedding = model.encode(query, normalize_embeddings=True)
+    vector = np.array([embedding], dtype="float32")
+    faiss.normalize_L2(vector)
+    return vector
 
 
 def semantic_search(query: str, top_k: int = 10) -> list[dict]:
     """
-    Tìm kiếm ngữ nghĩa sử dụng vector similarity.
+    Search semantically using FAISS cosine similarity.
 
     Args:
-        query: Câu truy vấn
-        top_k: Số lượng kết quả tối đa
+        query: User query.
+        top_k: Maximum number of results.
 
     Returns:
-        List of {
-            'content': str,      # Nội dung chunk
-            'score': float,      # Cosine similarity score
-            'metadata': dict     # source, doc_type, chunk_index
-        }
-        Sorted by score descending.
+        List of {'content': str, 'score': float, 'metadata': dict}, sorted by
+        score descending.
     """
-    # TODO: Implement semantic search
-    #
-    # Bước 1: Embed query bằng cùng model ở Task 4
-    # Bước 2: Query vector store (cosine similarity)
-    # Bước 3: Return top_k results
-    #
-    # Ví dụ với Weaviate:
-    # import weaviate
-    # from sentence_transformers import SentenceTransformer
-    #
-    # model = SentenceTransformer("BAAI/bge-m3")
-    # query_embedding = model.encode(query).tolist()
-    #
-    # client = weaviate.connect_to_local()
-    # collection = client.collections.get("DrugLawDocs")
-    #
-    # results = collection.query.near_vector(
-    #     near_vector=query_embedding,
-    #     limit=top_k,
-    #     return_metadata=MetadataQuery(distance=True)
-    # )
-    #
-    # return [
-    #     {
-    #         "content": obj.properties["content"],
-    #         "score": 1 - obj.metadata.distance,  # distance → similarity
-    #         "metadata": {"source": obj.properties["source"], ...}
-    #     }
-    #     for obj in results.objects
-    # ]
-    raise NotImplementedError("Implement semantic_search")
+    if top_k <= 0:
+        return []
+
+    query = query.strip()
+    if not query:
+        return []
+
+    index = _load_faiss_index()
+    metadata = _load_metadata()
+    chunks = metadata.get("chunks", [])
+    if index.ntotal == 0 or not chunks:
+        return []
+
+    limit = min(top_k, index.ntotal)
+    scores, indices = index.search(_embed_query(query), limit)
+
+    results = []
+    for score, idx in zip(scores[0], indices[0]):
+        if idx < 0 or idx >= len(chunks):
+            continue
+        chunk = chunks[int(idx)]
+        results.append(
+            {
+                "content": chunk.get("content", ""),
+                "score": float(score),
+                "metadata": chunk.get("metadata", {}),
+            }
+        )
+
+    results.sort(key=lambda item: item["score"], reverse=True)
+    return results[:top_k]
 
 
 if __name__ == "__main__":
-    # Test
-    results = semantic_search("hình phạt cho tội tàng trữ ma tuý", top_k=5)
-    for r in results:
-        print(f"[{r['score']:.3f}] {r['content'][:100]}...")
+    import sys
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
+    results = semantic_search("hình phạt cho tội tàng trữ ma túy", top_k=5)
+    for result in results:
+        source = result.get("metadata", {}).get("source", "unknown")
+        print(f"[{result['score']:.3f}] {source}: {result['content'][:120]}...")

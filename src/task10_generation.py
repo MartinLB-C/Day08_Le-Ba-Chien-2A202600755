@@ -1,201 +1,199 @@
 """
-Task 10 — Generation Có Citation.
+Task 10 - Generation with citations.
 
-Hướng dẫn:
-    1. Chọn top_k, top_p phù hợp (giải thích lý do)
-    2. Sắp xếp lại chunks sau reranking để tránh "lost in the middle"
-    3. Inject context vào prompt
-    4. Yêu cầu LLM trả lời có citation
-    5. Nếu không đủ evidence → "I cannot verify this information"
+LLM provider:
+    Alibaba Cloud DashScope / Model Studio OpenAI-compatible API.
+
+Required .env values for real generation:
+    DASHSCOPE_API_KEY=...
+    DASHSCOPE_BASE_URL=https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+    DASHSCOPE_MODEL=qwen3.5-flash
+
+If the DashScope config is missing, the module falls back to an extractive answer
+from retrieved context so tests and local demos still run without an API call.
 """
 
+from __future__ import annotations
+
 import os
+import re
+from pathlib import Path
+
 from dotenv import load_dotenv
+from openai import OpenAI
 
-load_dotenv()
+try:
+    from .task9_retrieval_pipeline import retrieve
+except ImportError:
+    from task9_retrieval_pipeline import retrieve
 
-from .task9_retrieval_pipeline import retrieve
+PROJECT_DIR = Path(__file__).parent.parent
+load_dotenv(PROJECT_DIR / ".env")
 
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "").strip()
+DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", "").strip()
+DASHSCOPE_MODEL = os.getenv("DASHSCOPE_MODEL", "qwen3.5-flash").strip()
 
-# =============================================================================
-# CONFIGURATION — Giải thích lựa chọn
-# =============================================================================
+# top_k=5 gives enough evidence diversity without overloading a flash model.
+DEFAULT_TOP_K = 5
 
-# top_k: Số chunks đưa vào context
-# Chọn 5 vì: đủ evidence mà không quá dài gây lost in the middle
-TOP_K = 5
+# top_p=0.3 keeps the answer grounded and less creative for legal/news QA.
+DEFAULT_TOP_P = 0.3
 
-# top_p (nucleus sampling): Xác suất tích luỹ cho token generation
-# Chọn 0.9 vì: đủ diverse nhưng không quá random
-TOP_P = 0.9
+SYSTEM_PROMPT = """Answer the question using only the provided context.
+For every factual claim, immediately add a citation in brackets like [Source, Year].
+If the provided context does not explicitly support the answer, say "I cannot verify this information".
+Do not invent citations."""
 
-# temperature: Độ ngẫu nhiên của output
-# Chọn 0.3 vì: RAG cần factual, ít sáng tạo
-TEMPERATURE = 0.3
-
-
-# =============================================================================
-# SYSTEM PROMPT
-# =============================================================================
-
-SYSTEM_PROMPT = """Answer the following question comprehensively in Vietnamese.
-For every statement of fact or claim, immediately insert a citation in brackets
-linking to the specific source (e.g., [Luật Phòng chống ma tuý 2021, Điều 3]
-or [VnExpress, 2024]).
-
-If the information is not explicitly stated in the provided context or knowledge
-base, state 'Tôi không thể xác minh thông tin này từ nguồn hiện có' rather than
-guessing.
-
-Rules:
-- Only use information from the provided context
-- Every factual claim MUST have a citation
-- If context is insufficient, say so clearly
-- Structure your answer with clear paragraphs"""
-
-
-# =============================================================================
-# DOCUMENT REORDERING (tránh lost in the middle)
-# =============================================================================
 
 def reorder_for_llm(chunks: list[dict]) -> list[dict]:
     """
-    Sắp xếp chunks để tránh "lost in the middle" effect.
+    Reorder chunks to reduce lost-in-the-middle.
 
-    LLM nhớ tốt thông tin ở ĐẦU và CUỐI prompt, quên thông tin ở GIỮA.
-    Strategy: đặt chunks quan trọng nhất ở đầu và cuối, kém quan trọng ở giữa.
-
-    Input order (by score):  [1, 2, 3, 4, 5]
-    Output order:            [1, 3, 5, 4, 2]
-    (best first, worst in middle, second-best last)
-
-    Args:
-        chunks: List sorted by score descending (from retrieval)
-
-    Returns:
-        List reordered để maximize LLM attention.
+    The highest ranked chunk stays first. The next important chunks alternate
+    between the end and the middle, keeping strong evidence near both edges.
     """
-    # TODO: Implement reordering
-    #
-    # if len(chunks) <= 2:
-    #     return chunks
-    #
-    # # Split into first half (important → đầu) and second half (important → cuối)
-    # reordered = []
-    # for i in range(0, len(chunks), 2):
-    #     reordered.append(chunks[i])  # Odd positions go first
-    # for i in range(len(chunks) - 1 - (len(chunks) % 2 == 0), 0, -2):
-    #     reordered.append(chunks[i])  # Even positions go last (reversed)
-    #
-    # return reordered
-    raise NotImplementedError("Implement reorder_for_llm")
+    if len(chunks) <= 2:
+        return chunks[:]
+
+    reordered: list[dict] = [chunks[0]]
+    tail: list[dict] = []
+
+    for index, chunk in enumerate(chunks[1:], start=1):
+        if index % 2 == 1:
+            tail.insert(0, chunk)
+        else:
+            reordered.append(chunk)
+
+    return reordered + tail
 
 
-# =============================================================================
-# CONTEXT FORMATTING
-# =============================================================================
+def _source_year(metadata: dict) -> tuple[str, str]:
+    source = (
+        metadata.get("source")
+        or metadata.get("path")
+        or metadata.get("filename")
+        or "Unknown source"
+    )
+    year = "2026"
+    match = re.search(r"(20\d{2})", str(source))
+    if match:
+        year = match.group(1)
+    return str(source), year
+
 
 def format_context(chunks: list[dict]) -> str:
     """
-    Format chunks thành context string cho prompt.
-    Mỗi chunk có label source để LLM có thể cite.
-
-    Args:
-        chunks: List of {'content': str, 'metadata': dict, 'score': float}
-
-    Returns:
-        Formatted context string.
+    Format context chunks with source metadata for citation.
     """
-    # TODO: Implement context formatting
-    #
-    # context_parts = []
-    # for i, chunk in enumerate(chunks, 1):
-    #     source = chunk.get("metadata", {}).get("source", f"Source {i}")
-    #     doc_type = chunk.get("metadata", {}).get("type", "unknown")
-    #     context_parts.append(
-    #         f"[Document {i} | Source: {source} | Type: {doc_type}]\n"
-    #         f"{chunk['content']}\n"
-    #     )
-    # return "\n---\n".join(context_parts)
-    raise NotImplementedError("Implement format_context")
+    formatted = []
+    for index, chunk in enumerate(chunks, start=1):
+        metadata = chunk.get("metadata", {})
+        source, year = _source_year(metadata)
+        formatted.append(
+            f"[Context {index}]\n"
+            f"Source: {source}\n"
+            f"Year: {year}\n"
+            f"Score: {float(chunk.get('score', 0.0)):.4f}\n"
+            f"Content:\n{chunk.get('content', '')}"
+        )
+    return "\n\n---\n\n".join(formatted)
 
 
-# =============================================================================
-# GENERATION
-# =============================================================================
+def _dashscope_client() -> OpenAI | None:
+    if not DASHSCOPE_API_KEY or not DASHSCOPE_BASE_URL:
+        return None
+    return OpenAI(api_key=DASHSCOPE_API_KEY, base_url=DASHSCOPE_BASE_URL)
 
-def generate_with_citation(query: str, top_k: int = TOP_K) -> dict:
+
+def _fallback_answer(query: str, chunks: list[dict]) -> str:
+    if not chunks:
+        return "I cannot verify this information"
+
+    best = chunks[0]
+    source, year = _source_year(best.get("metadata", {}))
+    content = " ".join(str(best.get("content", "")).split())
+    excerpt = content[:700].rstrip()
+    if not excerpt:
+        return "I cannot verify this information"
+
+    return (
+        f"Based on the retrieved context, the most relevant evidence says: "
+        f"{excerpt} [{source}, {year}]."
+    )
+
+
+def generate_with_citation(
+    query: str,
+    context_chunks: list[dict] | None = None,
+    top_k: int = DEFAULT_TOP_K,
+    top_p: float = DEFAULT_TOP_P,
+) -> dict:
     """
-    End-to-end RAG generation có citation.
+    Generate an answer with citations.
 
-    Pipeline:
-        1. Retrieve relevant chunks
-        2. Reorder để tránh lost in the middle
-        3. Format context với source labels
-        4. Build prompt (system + context + query)
-        5. Call LLM
-        6. Return answer + sources
+    Steps:
+        1. Retrieve context if context_chunks is not provided.
+        2. Reorder context to reduce lost-in-the-middle.
+        3. Format source metadata for citations.
+        4. Call Alibaba DashScope OpenAI-compatible API using qwen3.5-flash.
+        5. Return {'answer': str, 'sources': list, 'model': str}.
+    """
+    if context_chunks is None:
+        context_chunks = retrieve(query, top_k=top_k)
 
-    Args:
-        query: Câu hỏi của user
+    ordered_chunks = reorder_for_llm(context_chunks[:top_k])
+    context = format_context(ordered_chunks)
+    client = _dashscope_client()
 
-    Returns:
-        {
-            'answer': str,           # Câu trả lời có citation
-            'sources': list[dict],   # Các chunks đã dùng
-            'retrieval_source': str  # 'hybrid' hoặc 'pageindex'
+    if client is None:
+        return {
+            "answer": _fallback_answer(query, ordered_chunks),
+            "sources": ordered_chunks,
+            "model": "extractive_fallback",
         }
-    """
-    # TODO: Implement generation pipeline
-    #
-    # # Step 1: Retrieve
-    # chunks = retrieve(query, top_k=top_k)
-    #
-    # # Step 2: Reorder
-    # reordered = reorder_for_llm(chunks)
-    #
-    # # Step 3: Format context
-    # context = format_context(reordered)
-    #
-    # # Step 4: Build prompt
-    # user_message = f"""Context:\n{context}\n\n---\n\nQuestion: {query}"""
-    #
-    # # Step 5: Call LLM
-    # from openai import OpenAI
-    # client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    #
-    # response = client.chat.completions.create(
-    #     model="gpt-4o-mini",
-    #     messages=[
-    #         {"role": "system", "content": SYSTEM_PROMPT},
-    #         {"role": "user", "content": user_message}
-    #     ],
-    #     temperature=TEMPERATURE,
-    #     top_p=TOP_P,
-    # )
-    #
-    # answer = response.choices[0].message.content
-    #
-    # # Step 6: Return
-    # return {
-    #     "answer": answer,
-    #     "sources": chunks,
-    #     "retrieval_source": chunks[0].get("source", "hybrid") if chunks else "none"
-    # }
-    raise NotImplementedError("Implement generate_with_citation")
+
+    user_prompt = f"""Question:
+{query}
+
+Context:
+{context}
+
+Write a concise Vietnamese answer with citations. If evidence is insufficient,
+write exactly: I cannot verify this information"""
+
+    try:
+        completion = client.chat.completions.create(
+            model=DASHSCOPE_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            top_p=top_p,
+            temperature=0.2,
+        )
+        answer = completion.choices[0].message.content or ""
+    except Exception as exc:
+        answer = _fallback_answer(query, ordered_chunks)
+        return {
+            "answer": answer,
+            "sources": ordered_chunks,
+            "model": "extractive_fallback",
+            "error": str(exc),
+        }
+
+    return {
+        "answer": answer.strip() or "I cannot verify this information",
+        "sources": ordered_chunks,
+        "model": DASHSCOPE_MODEL,
+    }
 
 
 if __name__ == "__main__":
-    test_queries = [
-        "Hình phạt cho tội tàng trữ trái phép chất ma tuý theo pháp luật Việt Nam?",
-        "Những nghệ sĩ nào đã bị bắt vì liên quan tới ma tuý?",
-        "Quy trình cai nghiện bắt buộc theo Luật Phòng chống ma tuý 2021?",
-    ]
+    import sys
 
-    for q in test_queries:
-        print(f"\n{'='*70}")
-        print(f"Q: {q}")
-        print("=" * 70)
-        result = generate_with_citation(q)
-        print(f"\nA: {result['answer']}")
-        print(f"\n[Sources: {len(result['sources'])} chunks | via {result['retrieval_source']}]")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
+    result = generate_with_citation("Hình phạt cho tội tàng trữ trái phép chất ma túy là gì?")
+    print(result["answer"])

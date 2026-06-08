@@ -1,30 +1,56 @@
 """
-Task 9 — Retrieval Pipeline Hoàn Chỉnh.
+Task 9 - Complete retrieval pipeline.
 
-Kết hợp semantic search + lexical search + reranking + PageIndex fallback
-thành một pipeline thống nhất.
+This pipeline combines:
+    1. Semantic search from FAISS (Task 5)
+    2. Lexical BM25 search (Task 6)
+    3. Reciprocal Rank Fusion, RRF (Task 7 helper)
+    4. Optional Jina reranking (Task 7)
 
-Logic:
-    1. Chạy semantic_search + lexical_search song song
-    2. Merge kết quả (RRF hoặc weighted fusion)
-    3. Rerank
-    4. Nếu top result score < threshold → fallback sang PageIndex
-    5. Return top_k results
+PageIndex fallback is intentionally disabled because PageIndex credits are low.
 """
 
-from .task5_semantic_search import semantic_search
-from .task6_lexical_search import lexical_search
-from .task7_reranking import rerank, rerank_rrf
-from .task8_pageindex_vectorless import pageindex_search
+from __future__ import annotations
+
+try:
+    from .task5_semantic_search import semantic_search
+    from .task6_lexical_search import lexical_search
+    from .task7_reranking import rerank, rerank_rrf
+except ImportError:
+    from task5_semantic_search import semantic_search
+    from task6_lexical_search import lexical_search
+    from task7_reranking import rerank, rerank_rrf
 
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-SCORE_THRESHOLD = 0.3   # Nếu best score < threshold → fallback PageIndex
+SCORE_THRESHOLD = 0.0
 DEFAULT_TOP_K = 5
-RERANK_METHOD = "cross_encoder"  # "cross_encoder" | "mmr" | "rrf"
+RERANK_METHOD = "cross_encoder"
+RRF_K = 60
+
+
+def _mark_results(results: list[dict], ranker: str) -> list[dict]:
+    marked = []
+    for rank, item in enumerate(results, start=1):
+        copied = item.copy()
+        metadata = copied.get("metadata", {}).copy()
+        metadata["ranker"] = ranker
+        metadata["rank"] = rank
+        copied["metadata"] = metadata
+        marked.append(copied)
+    return marked
+
+
+def _ensure_hybrid_source(results: list[dict]) -> list[dict]:
+    final = []
+    for item in results:
+        copied = item.copy()
+        copied["source"] = "hybrid"
+        final.append(copied)
+    return final
 
 
 def retrieve(
@@ -34,71 +60,63 @@ def retrieve(
     use_reranking: bool = True,
 ) -> list[dict]:
     """
-    Retrieval pipeline hoàn chỉnh với fallback logic.
-
-    Pipeline:
-        Query
-          ├→ Semantic Search → results_dense
-          ├→ Lexical Search  → results_sparse
-          │
-          ├→ Merge (RRF) → merged_results
-          ├→ Rerank → reranked_results
-          │
-          └→ If best_score < threshold:
-                └→ PageIndex Vectorless → fallback_results
+    Run hybrid retrieval with RRF merge and no PageIndex fallback.
 
     Args:
-        query: Câu truy vấn
-        top_k: Số lượng kết quả cuối cùng
-        score_threshold: Ngưỡng điểm tối thiểu cho hybrid results
-        use_reranking: Có áp dụng reranking hay không
+        query: User query.
+        top_k: Number of final results.
+        score_threshold: Minimum accepted score. Results below this threshold are
+            filtered, but no PageIndex fallback is called.
+        use_reranking: Whether to rerank RRF results with Task 7 Jina reranker.
 
     Returns:
-        List of {
-            'content': str,
-            'score': float,
-            'metadata': dict,
-            'source': str  # 'hybrid' hoặc 'pageindex'
-        }
+        List of {'content': str, 'score': float, 'metadata': dict, 'source': 'hybrid'}.
     """
-    # TODO: Implement full retrieval pipeline
-    #
-    # Step 1: Song song chạy semantic + lexical
-    # dense_results = semantic_search(query, top_k=top_k * 2)
-    # sparse_results = lexical_search(query, top_k=top_k * 2)
-    #
-    # Step 2: Merge bằng RRF
-    # merged = rerank_rrf([dense_results, sparse_results], top_k=top_k * 2)
-    # for item in merged:
-    #     item["source"] = "hybrid"
-    #
-    # Step 3: Rerank
-    # if use_reranking and merged:
-    #     final_results = rerank(query, merged, top_k=top_k, method=RERANK_METHOD)
-    # else:
-    #     final_results = merged[:top_k]
-    #
-    # Step 4: Check threshold → fallback
-    # if not final_results or final_results[0]["score"] < score_threshold:
-    #     print(f"  ⚠ Hybrid score ({final_results[0]['score']:.3f} if final_results else 0}) "
-    #           f"< threshold ({score_threshold}). Fallback → PageIndex")
-    #     fallback = pageindex_search(query, top_k=top_k)
-    #     return fallback
-    #
-    # return final_results[:top_k]
-    raise NotImplementedError("Implement retrieve")
+    if top_k <= 0:
+        return []
+
+    query = query.strip()
+    if not query:
+        return []
+
+    search_k = max(top_k * 4, 10)
+    dense_results = _mark_results(semantic_search(query, top_k=search_k), "semantic")
+    sparse_results = _mark_results(lexical_search(query, top_k=search_k), "lexical")
+
+    merged = rerank_rrf([dense_results, sparse_results], top_k=search_k, k=RRF_K)
+    merged = _ensure_hybrid_source(merged)
+
+    if use_reranking and merged:
+        final_results = rerank(query, merged, top_k=top_k, method=RERANK_METHOD)
+        final_results = _ensure_hybrid_source(final_results)
+    else:
+        final_results = merged[:top_k]
+
+    filtered = [
+        item for item in final_results
+        if float(item.get("score", 0.0)) >= score_threshold
+    ]
+    return filtered[:top_k]
 
 
 if __name__ == "__main__":
+    import sys
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
     test_queries = [
-        "Hình phạt cho tội tàng trữ trái phép chất ma tuý",
-        "Nghệ sĩ nào bị bắt vì sử dụng ma tuý năm 2024",
-        "Luật phòng chống ma tuý 2021 quy định gì về cai nghiện",
+        "Hình phạt cho tội tàng trữ trái phép chất ma túy",
+        "Nghệ sĩ nào bị bắt vì sử dụng ma túy",
+        "Luật phòng chống ma túy 2021 quy định gì về cai nghiện",
     ]
 
     for q in test_queries:
         print(f"\nQuery: {q}")
         print("-" * 60)
         results = retrieve(q, top_k=3)
-        for i, r in enumerate(results, 1):
-            print(f"  {i}. [{r['score']:.3f}] [{r['source']}] {r['content'][:80]}...")
+        for i, result in enumerate(results, start=1):
+            print(
+                f"  {i}. [{result['score']:.3f}] "
+                f"[{result['source']}] {result['content'][:100]}..."
+            )

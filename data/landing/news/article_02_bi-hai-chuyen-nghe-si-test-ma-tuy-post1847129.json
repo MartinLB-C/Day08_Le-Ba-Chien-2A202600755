@@ -1,0 +1,9 @@
+{
+  "url": "https://tienphong.vn/bi-hai-chuyen-nghe-si-test-ma-tuy-post1847129.tpo",
+  "title": "Unknown title",
+  "date_crawled": "2026-06-08T08:04:41.201836+00:00",
+  "content": "",
+  "content_markdown": "",
+  "crawler": "urllib",
+  "crawl4ai_error": "BrowserType.launch: Executable doesn't exist at C:\\Users\\MY PC\\AppData\\Local\\ms-playwright\\chromium-1223\\chrome-win64\\chrome.exe\n╔════════════════════════════════════════════════════════════╗\n║ Looks like Playwright was just installed or updated.       ║\n║ Please run the following command to download new browsers: ║\n║                                                            ║\n║     playwright install                                     ║\n║                                                            ║\n║ <3 Playwright Team                                         ║\n╚════════════════════════════════════════════════════════════╝"
+}
