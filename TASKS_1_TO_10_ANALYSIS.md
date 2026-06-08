@@ -1,183 +1,297 @@
-# Phan tich cong viec Task 1 den Task 10
+# Báo Cáo Cá Nhân - Task 1 Đến Task 10
 
-## Tong quan
+## 1. Thông tin bài làm
 
-Du an xay dung pipeline RAG cho du lieu phap luat Viet Nam ve ma tuy va tin tuc nghe si lien quan den ma tuy. Pipeline hien tai di theo luong:
+- **Học viên:** Lê Bá Chiến
+- **Mã học viên:** 2A202600755
+- **Chủ đề:** RAG pipeline cho dữ liệu pháp luật Việt Nam về ma túy và tin tức nghệ sĩ liên quan đến ma túy
+- **Phạm vi:** Hoàn thành các task cá nhân từ Task 1 đến Task 10 theo README
 
-1. Thu thap tai lieu goc.
-2. Crawl tin tuc.
-3. Chuyen doi sang Markdown.
-4. Chunking, embedding va index vao FAISS.
-5. Semantic search.
-6. Lexical search BM25.
-7. Reranking bang Jina Reranker v2.
-8. PageIndex vectorless RAG, da khoa mac dinh de bao ve credit.
-9. Hybrid retrieval bang RRF, khong fallback PageIndex.
-10. Generation co citation bang Alibaba DashScope OpenAI-compatible API voi model `qwen3.5-flash`.
+## 2. Tổng quan pipeline
 
-## Task 1 - Thu thap van ban phap luat
+Bài làm xây dựng một pipeline RAG end-to-end với luồng xử lý chính:
 
-Du lieu phap luat goc duoc luu trong `data/landing/legal/`, gom 4 file PDF:
+1. Thu thập văn bản pháp luật gốc.
+2. Crawl dữ liệu tin tức.
+3. Chuyển đổi dữ liệu sang Markdown.
+4. Chunking, embedding và index vào FAISS.
+5. Truy vấn semantic search.
+6. Truy vấn lexical search bằng BM25.
+7. Reranking kết quả retrieval.
+8. Tích hợp PageIndex vectorless RAG.
+9. Kết hợp các module thành hybrid retrieval pipeline.
+10. Sinh câu trả lời có citation.
 
-- Bo luat Hinh su sua doi 2017.
-- Luat Phong, chong ma tuy 2021.
-- Nghi dinh 105/2021/ND-CP.
-- Nghi dinh 28/2026/ND-CP ve danh muc chat ma tuy va tien chat.
+Pipeline hiện tại sử dụng FAISS làm vector store local, BM25 cho tìm kiếm từ khóa, RRF để gộp kết quả semantic và lexical, Jina Reranker hoặc fallback local để rerank, và DashScope/Qwen hoặc fallback extractive để sinh câu trả lời có nguồn.
 
-Ket qua nay dap ung yeu cau README la can toi thieu 3 file PDF/DOCX trong `data/landing/legal/`.
+## 3. Bảng tổng hợp trạng thái
 
-## Task 2 - Crawl bai bao
+| Task | Nội dung | File chính | Trạng thái |
+|---|---|---|---|
+| Task 1 | Thu thập văn bản pháp luật | `data/landing/legal/` | Hoàn thành |
+| Task 2 | Crawl bài báo | `src/task2_crawl_news.py`, `data/landing/news/` | Hoàn thành |
+| Task 3 | Convert sang Markdown | `src/task3_convert_markdown.py` | Hoàn thành |
+| Task 4 | Chunking và indexing | `src/task4_chunking_indexing.py` | Hoàn thành |
+| Task 5 | Semantic search | `src/task5_semantic_search.py` | Hoàn thành |
+| Task 6 | Lexical search | `src/task6_lexical_search.py` | Hoàn thành |
+| Task 7 | Reranking | `src/task7_reranking.py` | Hoàn thành |
+| Task 8 | PageIndex vectorless RAG | `src/task8_pageindex_vectorless.py` | Hoàn thành có giới hạn |
+| Task 9 | Retrieval pipeline | `src/task9_retrieval_pipeline.py` | Hoàn thành |
+| Task 10 | Generation có citation | `src/task10_generation.py` | Hoàn thành |
 
-Du lieu tin tuc duoc luu trong `data/landing/news/`, gom 5 file JSON. Moi file co metadata nhu `url`, `title`, `date_crawled` va noi dung bai viet o `content`/`content_markdown`.
+## 4. Chi tiết từng task
 
-Trong qua trinh crawl, Crawl4AI/Playwright co the loi neu chua cai browser, nen pipeline co fallback crawl bang urllib. JSON da duoc format nhieu dong de de doc hon.
+### Task 1 - Thu thập văn bản pháp luật
 
-## Task 3 - Convert sang Markdown
+Dữ liệu pháp luật gốc được lưu trong `data/landing/legal/`, gồm 4 file PDF:
 
-File `src/task3_convert_markdown.py` da duoc hoan thien de:
+- Bộ luật Hình sự sửa đổi 2017.
+- Luật Phòng, chống ma túy 2021.
+- Nghị định 105/2021/NĐ-CP hướng dẫn thi hành Luật Phòng, chống ma túy.
+- Nghị định 28/2026/NĐ-CP về danh mục chất ma túy và tiền chất.
 
-- Dung MarkItDown convert PDF/DOCX trong `data/landing/legal/`.
-- Convert JSON bai bao trong `data/landing/news/` sang Markdown.
-- Giu cau truc thu muc con `legal/` va `news/`.
+Kết quả đáp ứng yêu cầu README là cần tối thiểu 3 văn bản pháp luật dạng PDF/DOCX trong thư mục `data/landing/legal/`.
 
-Output nam trong:
+### Task 2 - Crawl bài báo
+
+Dữ liệu tin tức được lưu trong `data/landing/news/`, gồm 5 file JSON. Mỗi file có metadata như:
+
+- URL gốc.
+- Tiêu đề bài báo.
+- Ngày crawl.
+- Nội dung bài viết.
+- Nội dung Markdown nếu có.
+
+Trong quá trình crawl, nếu Crawl4AI hoặc Playwright không chạy được do thiếu browser, code có fallback bằng `urllib` để đảm bảo vẫn lấy được dữ liệu và lưu đúng định dạng.
+
+### Task 3 - Convert sang Markdown
+
+File `src/task3_convert_markdown.py` được dùng để chuyển dữ liệu gốc sang Markdown.
+
+Chức năng chính:
+
+- Dùng MarkItDown để convert PDF/DOCX trong `data/landing/legal/`.
+- Convert JSON bài báo trong `data/landing/news/` sang Markdown.
+- Giữ nguyên cấu trúc thư mục con `legal/` và `news/`.
+
+Output được lưu tại:
 
 - `data/standardized/legal/`
 - `data/standardized/news/`
 
-Dependency da cap nhat thanh `markitdown[pdf]` vi MarkItDown ban mac dinh khong doc PDF neu thieu extra dependency.
+Dependency đã được cấu hình là `markitdown[pdf]` để hỗ trợ đọc PDF.
 
-## Task 4 - Chunking va Indexing
+### Task 4 - Chunking và indexing
 
-File `src/task4_chunking_indexing.py` da duoc hoan thien voi cau hinh:
+File chính: `src/task4_chunking_indexing.py`.
 
-- Chunking: `RecursiveCharacterTextSplitter`
-- `CHUNK_SIZE = 1000`
-- `CHUNK_OVERLAP = 150`
-- Embedding model: `sentence-transformers/all-MiniLM-L6-v2`
-- Embedding dimension: `384`
-- Vector store: `FAISS`
+Cấu hình đã sử dụng:
 
-Ly do chon RecursiveCharacterTextSplitter: corpus gom ca van ban phap luat dai va bai bao, heading khong luon on dinh, nen cach tach theo do uu tien doan/line/cau/tu la an toan.
+- **Chunking strategy:** `RecursiveCharacterTextSplitter`
+- **Chunk size:** 1000
+- **Chunk overlap:** 150
+- **Embedding model:** `sentence-transformers/all-MiniLM-L6-v2`
+- **Embedding dimension:** 384
+- **Vector store:** FAISS
 
-Vector store duoc luu local:
+Lý do chọn `RecursiveCharacterTextSplitter`: dữ liệu gồm cả văn bản pháp luật dài và bài báo, heading không luôn ổn định, nên chiến lược tách theo đoạn/dòng/câu/từ là an toàn và phù hợp.
+
+Vector store được lưu local tại:
 
 - `data/vectorstore/faiss.index`
 - `data/vectorstore/metadata.json`
 
-Da bo JSON index cu trong `data/index/task4_vector_index.json` vi khong con dung.
+### Task 5 - Semantic search
 
-## Task 5 - Semantic Search
+File chính: `src/task5_semantic_search.py`.
 
-File `src/task5_semantic_search.py` search tren FAISS:
+Module này thực hiện dense retrieval trên FAISS:
 
-- Embed query bang cung model `sentence-transformers/all-MiniLM-L6-v2`.
-- Normalize vector va search bang FAISS cosine similarity.
-- Tra ve list dict co `content`, `score`, `metadata`.
-- Ket qua sorted giam dan theo score.
+- Embed query bằng cùng model `sentence-transformers/all-MiniLM-L6-v2`.
+- Normalize vector để tính cosine similarity.
+- Search trên FAISS index.
+- Trả về danh sách kết quả có `content`, `score`, `metadata`.
+- Kết quả được sắp xếp giảm dần theo score.
 
-Task 5 tuong thich truc tiep voi vector store FAISS cua Task 4.
+Hàm chính:
 
-## Task 6 - Lexical Search
+```python
+semantic_search(query: str, top_k: int = 10) -> list[dict]
+```
 
-File `src/task6_lexical_search.py` dung BM25 voi `rank-bm25`:
+### Task 6 - Lexical search
 
-- Corpus lay tu `data/vectorstore/metadata.json`.
-- Tokenize bang regex Unicode de xu ly tieng Viet va dau cau tot hon `split()`.
-- Ham chinh: `lexical_search(query, top_k=10)`.
-- Tra ve `content`, `score`, `metadata`, sorted giam dan.
+File chính: `src/task6_lexical_search.py`.
 
-BM25 bo sung kha nang match keyword chinh xac, dac biet tot voi dieu luat, so dieu, cum tu phap ly.
+Module này dùng BM25 với thư viện `rank-bm25`.
 
-## Task 7 - Reranking
+Đặc điểm:
 
-File `src/task7_reranking.py` dung Jina Reranker v2:
+- Corpus lấy từ `data/vectorstore/metadata.json`.
+- Tokenize bằng regex Unicode để xử lý tiếng Việt tốt hơn so với `split()`.
+- Trả về kết quả theo format `content`, `score`, `metadata`.
+- Kết quả được sắp xếp giảm dần theo score.
 
-- Model: `jina-reranker-v2-base-multilingual`
-- API key: `JINA_API_KEY` trong `.env`
-- Ham chinh: `rerank(query, candidates, top_k=5)`
+BM25 giúp bổ sung khả năng match từ khóa chính xác, đặc biệt hữu ích với số điều luật, tên văn bản, thuật ngữ pháp lý và tên riêng.
 
-Neu khong co API key hoac API loi, code fallback sang scoring lexical local de test va demo khong crash. Khi da them API key, kiem tra thuc te cho thay `rerank_model` la `jina-reranker-v2-base-multilingual`.
+Hàm chính:
 
-File nay cung co helper `rerank_rrf()` de merge nhieu ranked lists bang Reciprocal Rank Fusion.
+```python
+lexical_search(query: str, top_k: int = 10) -> list[dict]
+```
 
-## Task 8 - PageIndex Vectorless RAG
+### Task 7 - Reranking
 
-File `src/task8_pageindex_vectorless.py` da tich hop PageIndex SDK:
+File chính: `src/task7_reranking.py`.
 
-- API key: `PAGEINDEX_API_KEY` trong `.env`
-- Upload PDF goc trong `data/landing/legal/`
-- Cache doc_id vao `data/pageindex/documents.json`
-- Query PageIndex qua retrieval API va chuan hoa output ve `content`, `score`, `metadata`, `source='pageindex'`
+Phương pháp chính:
 
-Do PageIndex free credits bi tru theo so trang PDF va moi retrieval query, Task 8 hien da duoc khoa mac dinh de bao ve credit:
+- **Model:** `jina-reranker-v2-base-multilingual`
+- **API:** Jina Reranker API
+- **Biến môi trường:** `JINA_API_KEY`
 
-- `PAGEINDEX_ALLOW_UPLOADS=1` moi cho upload them.
-- `PAGEINDEX_ALLOW_QUERIES=1` moi cho query retrieval.
+Nếu không có API key hoặc API lỗi, code fallback sang scoring lexical local để test và demo không bị crash.
 
-Task 9 hien khong fallback PageIndex de tranh ton credit.
+Ngoài ra file này có helper `rerank_rrf()` để gộp nhiều ranked lists bằng Reciprocal Rank Fusion.
 
-## Task 9 - Retrieval Pipeline
+Hàm chính:
 
-File `src/task9_retrieval_pipeline.py` da hoan thien pipeline hybrid:
+```python
+rerank(query: str, candidates: list[dict], top_k: int = 5) -> list[dict]
+```
 
-1. Chay semantic search tu FAISS.
-2. Chay lexical search BM25.
-3. Merge hai ranked lists bang RRF.
-4. Rerank bang Jina Reranker v2 neu `use_reranking=True`.
-5. Tra ve top_k ket qua voi `source='hybrid'`.
+### Task 8 - PageIndex vectorless RAG
 
-Theo yeu cau moi, PageIndex fallback da bi bo han de khong ton credit. Pipeline van giu tham so `score_threshold` nhung chi filter ket qua, khong goi PageIndex.
+File chính: `src/task8_pageindex_vectorless.py`.
 
-## Task 10 - Generation co Citation
+Module này tích hợp PageIndex SDK:
 
-File `src/task10_generation.py` da duoc tao moi voi cac ham:
+- Đọc API key từ `PAGEINDEX_API_KEY`.
+- Upload PDF gốc trong `data/landing/legal/`.
+- Cache `doc_id` vào `data/pageindex/documents.json`.
+- Query PageIndex retrieval API.
+- Chuẩn hóa output về format `content`, `score`, `metadata`.
 
-- `reorder_for_llm(chunks)`
-- `format_context(chunks)`
-- `generate_with_citation(query, context_chunks=None, top_k=5, top_p=0.3)`
-
-LLM duoc cau hinh theo Alibaba DashScope OpenAI-compatible API:
-
-- `DASHSCOPE_API_KEY`
-- `DASHSCOPE_BASE_URL`
-- `DASHSCOPE_MODEL=qwen3.5-flash`
-
-`top_k=5` duoc chon de co du bang chung nhung khong lam prompt qua dai. `top_p=0.3` va `temperature=0.2` giup cau tra loi it sang tao hon, phu hop voi QA phap ly/tin tuc can grounding.
-
-Neu thieu cau hinh DashScope, code fallback sang cau tra loi extractive co citation tu context de test local khong bi loi.
-
-## Cau hinh LLM Alibaba/Qwen
-
-Trong `.env`, can them:
+Do PageIndex free credits bị trừ theo số trang PDF và số retrieval query, Task 8 được khóa mặc định để tránh tiêu tốn credit:
 
 ```env
+PAGEINDEX_ALLOW_UPLOADS=1
+PAGEINDEX_ALLOW_QUERIES=1
+```
+
+Chỉ khi bật các biến môi trường trên, module mới upload hoặc query PageIndex.
+
+### Task 9 - Retrieval pipeline hoàn chỉnh
+
+File chính: `src/task9_retrieval_pipeline.py`.
+
+Pipeline hiện tại gồm các bước:
+
+1. Chạy semantic search từ FAISS.
+2. Chạy lexical search bằng BM25.
+3. Gộp hai danh sách kết quả bằng Reciprocal Rank Fusion.
+4. Rerank bằng Jina Reranker nếu `use_reranking=True`.
+5. Trả về top-k kết quả với `source='hybrid'`.
+
+Theo cấu hình hiện tại, PageIndex fallback không được gọi trong Task 9 để tránh tiêu tốn credit. Tham số `score_threshold` vẫn được giữ để filter kết quả.
+
+Hàm chính:
+
+```python
+retrieve(
+    query: str,
+    top_k: int = 5,
+    score_threshold: float = 0.0,
+    use_reranking: bool = True,
+) -> list[dict]
+```
+
+### Task 10 - Generation có citation
+
+File chính: `src/task10_generation.py`.
+
+Module này thực hiện:
+
+- Reorder context chunks để giảm hiện tượng lost in the middle.
+- Format context kèm metadata nguồn.
+- Inject context vào prompt.
+- Gọi LLM qua Alibaba DashScope OpenAI-compatible API.
+- Trả về câu trả lời có citation.
+- Fallback sang câu trả lời extractive nếu thiếu API key hoặc API lỗi.
+
+Cấu hình LLM:
+
+- **Provider:** Alibaba DashScope / Model Studio
+- **Model:** `qwen3.5-flash`
+- **Temperature:** 0.2
+- **Top-p:** 0.3
+- **Top-k context:** 5
+
+Lý do chọn `top_k=5`: đủ đa dạng bằng chứng nhưng không làm prompt quá dài.
+
+Lý do chọn `top_p=0.3` và `temperature=0.2`: giảm độ sáng tạo, phù hợp với QA pháp lý/tin tức cần bám sát nguồn.
+
+Hàm chính:
+
+```python
+generate_with_citation(
+    query: str,
+    context_chunks: list[dict] | None = None,
+    top_k: int = 5,
+    top_p: float = 0.3,
+) -> dict
+```
+
+## 5. Cấu hình môi trường
+
+File `.env` cần cấu hình các biến sau nếu muốn dùng đầy đủ API bên ngoài:
+
+```env
+JINA_API_KEY=your_jina_api_key
+PAGEINDEX_API_KEY=your_pageindex_api_key
+PAGEINDEX_ALLOW_UPLOADS=0
+PAGEINDEX_ALLOW_QUERIES=0
 DASHSCOPE_API_KEY=your_dashscope_api_key
 DASHSCOPE_BASE_URL=https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
 DASHSCOPE_MODEL=qwen3.5-flash
 ```
 
-Voi Singapore region, `{WorkspaceId}` phai thay bang workspace ID cua ban. Neu dung endpoint public DashScope khac, thay `DASHSCOPE_BASE_URL` theo region tu console Alibaba.
+Nếu thiếu API key, các module vẫn có fallback local để test và demo cơ bản.
 
-Code Task 10 dung OpenAI SDK nhu sau:
+## 6. Hướng dẫn chạy
 
-```python
-client = OpenAI(
-    api_key=os.getenv("DASHSCOPE_API_KEY"),
-    base_url=os.getenv("DASHSCOPE_BASE_URL"),
-)
+### Cài đặt dependencies
 
-completion = client.chat.completions.create(
-    model=os.getenv("DASHSCOPE_MODEL", "qwen3.5-flash"),
-    messages=[...],
-    top_p=0.3,
-    temperature=0.2,
-)
+```powershell
+pip install -r requirements.txt
 ```
 
-## Trang thai kiem thu
+### Chạy từng module
 
-Trong qua trinh lam da chay rieng cac test:
+```powershell
+venv\Scripts\python.exe src\task3_convert_markdown.py
+venv\Scripts\python.exe src\task4_chunking_indexing.py
+venv\Scripts\python.exe src\task9_retrieval_pipeline.py
+venv\Scripts\python.exe src\task10_generation.py
+```
+
+### Chạy test cá nhân
+
+```powershell
+venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+Hoặc chạy từng nhóm test:
+
+```powershell
+venv\Scripts\python.exe -m pytest tests/test_individual.py::TestTask1 -v
+venv\Scripts\python.exe -m pytest tests/test_individual.py::TestTask5 -v
+venv\Scripts\python.exe -m pytest tests/test_individual.py::TestTask10 -v
+```
+
+## 7. Trạng thái kiểm thử
+
+Trong quá trình phát triển đã kiểm tra riêng các task chính:
 
 - Task 3: pass.
 - Task 4: pass.
@@ -186,4 +300,16 @@ Trong qua trinh lam da chay rieng cac test:
 - Task 7: pass.
 - Task 9: pass.
 
-Task 8 khong nen test retrieval tiep neu khong muon ton PageIndex credits.
+Task 8 không nên chạy query PageIndex nhiều lần nếu không muốn tốn credit. Task 10 có fallback local nên vẫn có thể chạy khi thiếu cấu hình DashScope.
+
+## 8. Hạn chế
+
+- PageIndex fallback được khóa mặc định để tránh tốn credit.
+- Reranking bằng Jina phụ thuộc vào `JINA_API_KEY`; nếu thiếu key sẽ dùng fallback lexical local.
+- Generation bằng Qwen phụ thuộc vào cấu hình DashScope; nếu thiếu key sẽ dùng fallback extractive.
+- Citation phụ thuộc vào metadata của chunks, nên có thể cần chuẩn hóa thêm tên nguồn và năm để hiển thị đẹp hơn.
+- Dữ liệu hiện còn nhỏ, mới gồm 4 văn bản pháp luật và 5 bài báo.
+
+## 9. Kết luận
+
+Bài làm cá nhân đã hoàn thành đầy đủ các thành phần chính của một RAG pipeline theo README: thu thập dữ liệu, chuẩn hóa, chunking, indexing, semantic search, lexical search, reranking, PageIndex integration, hybrid retrieval và generation có citation. Pipeline có thể chạy local, có fallback khi thiếu API key, và đã được tích hợp tiếp vào app Streamlit của bài nhóm.
